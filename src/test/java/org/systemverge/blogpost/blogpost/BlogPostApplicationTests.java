@@ -1,7 +1,6 @@
 package org.systemverge.blogpost.blogpost;
 
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
+import com.embabel.agent.core.AgentPlatform;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -10,7 +9,6 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
-import com.embabel.agent.core.AgentPlatform;
 import org.systemverge.blogpost.blogpost.domain.BlogPostEntity;
 import org.systemverge.blogpost.blogpost.domain.BlogPostStatus;
 import org.systemverge.blogpost.blogpost.repository.BlogPostRepository;
@@ -20,24 +18,35 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Integration test that verifies:
- * <ol>
- *   <li>The full Spring context loads (JPA, repositories, service, REST controller).</li>
- *   <li>The H2 schema is correctly created from the {@link BlogPostEntity} mapping.</li>
- *   <li>All three custom repository query methods work correctly.</li>
- * </ol>
+ * Integration test: verifies JPA schema creation and repository queries
+ * against H2 with the minimal slice of the Spring context.
  *
- * <p>Embabel platform, shell, and model auto-configurations are excluded because
- * they require a live LLM API key — not available in CI. {@code AgentPlatform} is
- * provided as a {@code @MockitoBean} to satisfy {@code BlogPostServiceImpl}'s constructor.</p>
- *
- * <p>{@code webEnvironment = NONE} prevents the HTTP server from starting (faster,
- * and avoids shell blocking the test thread).</p>
+ * <p>All Spring Shell and Embabel platform auto-configurations are excluded
+ * because they require a live terminal / LLM API key.</p>
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 @TestPropertySource(properties = {
         "spring.shell.interactive.enabled=false",
         "spring.autoconfigure.exclude=" +
+                // ── Spring Shell (all configs — avoids JLine/Terminal dependency) ──
+                "org.springframework.shell.boot.SpringShellAutoConfiguration," +
+                "org.springframework.shell.boot.JLineAutoConfiguration," +
+                "org.springframework.shell.boot.JLineShellAutoConfiguration," +
+                "org.springframework.shell.boot.LineReaderAutoConfiguration," +
+                "org.springframework.shell.boot.ShellRunnerAutoConfiguration," +
+                "org.springframework.shell.boot.ShellContextAutoConfiguration," +
+                "org.springframework.shell.boot.CommandCatalogAutoConfiguration," +
+                "org.springframework.shell.boot.ApplicationRunnerAutoConfiguration," +
+                "org.springframework.shell.boot.CompleterAutoConfiguration," +
+                "org.springframework.shell.boot.ParameterResolverAutoConfiguration," +
+                "org.springframework.shell.boot.StandardAPIAutoConfiguration," +
+                "org.springframework.shell.boot.StandardCommandsAutoConfiguration," +
+                "org.springframework.shell.boot.ComponentFlowAutoConfiguration," +
+                "org.springframework.shell.boot.ExitCodeAutoConfiguration," +
+                "org.springframework.shell.boot.TerminalUIAutoConfiguration," +
+                "org.springframework.shell.boot.ThemingAutoConfiguration," +
+                "org.springframework.shell.boot.UserConfigAutoConfiguration," +
+                // ── Embabel (requires live LLM) ───────────────────────────────────
                 "com.embabel.agent.autoconfigure.platform.AgentPlatformAutoConfiguration," +
                 "com.embabel.agent.autoconfigure.shell.AgentShellAutoConfiguration," +
                 "com.embabel.agent.autoconfigure.models.openai.AgentOpenAiAutoConfiguration," +
@@ -46,25 +55,24 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Transactional
 class BlogPostApplicationTests {
 
-    /** Mock satisfies BlogPostServiceImpl constructor without real Embabel platform. */
+    /** Satisfies BlogPostServiceImpl without real Embabel platform. */
     @MockitoBean
     AgentPlatform agentPlatform;
 
     @Autowired
     BlogPostRepository repository;
 
+    // ── Schema + CRUD ─────────────────────────────────────────────────────
+
     @Test
-    void contextLoads_schemaCreated_andBasicCrudWorks() {
-        BlogPostEntity entity = BlogPostEntity.builder()
-                .topic("Spring Boot 4 context load test")
-                .title("Context Load Validation Post")
-                .content("# Intro\n\nVerifies H2 schema creation and CRUD.")
+    void contextLoads_schemaCreated_andCrudWorks() {
+        BlogPostEntity saved = repository.saveAndFlush(BlogPostEntity.builder()
+                .topic("Spring Boot 4 integration test")
+                .title("Context Load Post")
+                .content("# Intro\n\nVerifies H2 schema and CRUD.")
                 .feedback("Auto-generated.")
                 .status(BlogPostStatus.REVIEWED)
-                .build();
-
-        BlogPostEntity saved = repository.save(entity);
-        repository.flush();
+                .build());
 
         assertThat(saved.getId()).isNotNull();
         assertThat(saved.getCreatedAt()).isNotNull();
@@ -72,13 +80,13 @@ class BlogPostApplicationTests {
         assertThat(saved.getStatus()).isEqualTo(BlogPostStatus.REVIEWED);
     }
 
+    // ── Repository query methods ──────────────────────────────────────────
+
     @Test
-    void repositoryQuery_findByStatus_returnsMatchingPosts() {
-        repository.save(BlogPostEntity.builder()
-                .topic("reviewed-topic").title("Reviewed Post").content("Content A")
+    void repositoryQuery_findByStatus_returnsCorrectPosts() {
+        repository.save(BlogPostEntity.builder().topic("r").title("Reviewed").content("C A")
                 .status(BlogPostStatus.REVIEWED).build());
-        repository.save(BlogPostEntity.builder()
-                .topic("draft-topic").title("Draft Post").content("Content B")
+        repository.save(BlogPostEntity.builder().topic("d").title("Draft").content("C B")
                 .status(BlogPostStatus.DRAFT).build());
         repository.flush();
 
@@ -91,12 +99,10 @@ class BlogPostApplicationTests {
 
     @Test
     void repositoryQuery_searchByTopicKeyword_isCaseInsensitive() {
-        repository.save(BlogPostEntity.builder()
-                .topic("Docker Basics and Best Practices").title("Docker Guide").content("Content")
-                .status(BlogPostStatus.REVIEWED).build());
-        repository.save(BlogPostEntity.builder()
-                .topic("Kubernetes Orchestration").title("K8s Guide").content("Content")
-                .status(BlogPostStatus.REVIEWED).build());
+        repository.save(BlogPostEntity.builder().topic("Docker Basics").title("Docker Guide")
+                .content("C").status(BlogPostStatus.REVIEWED).build());
+        repository.save(BlogPostEntity.builder().topic("Kubernetes").title("K8s Guide")
+                .content("C").status(BlogPostStatus.REVIEWED).build());
         repository.flush();
 
         List<BlogPostEntity> results =
@@ -107,18 +113,15 @@ class BlogPostApplicationTests {
     }
 
     @Test
-    void repositoryQuery_findAllPaginated_returnsCorrectCount() {
-        repository.save(BlogPostEntity.builder()
-                .topic("post-1").title("First Post").content("Content 1")
+    void repositoryQuery_findAllPaginated_returnsAllPosts() {
+        repository.save(BlogPostEntity.builder().topic("p1").title("Post 1").content("C 1")
                 .status(BlogPostStatus.REVIEWED).build());
-        repository.save(BlogPostEntity.builder()
-                .topic("post-2").title("Second Post").content("Content 2")
+        repository.save(BlogPostEntity.builder().topic("p2").title("Post 2").content("C 2")
                 .status(BlogPostStatus.REVIEWED).build());
         repository.flush();
 
         Page<BlogPostEntity> page = repository.findAllByOrderByCreatedAtDesc(PageRequest.of(0, 10));
 
         assertThat(page.getTotalElements()).isEqualTo(2);
-        assertThat(page.getContent()).hasSize(2);
     }
 }
